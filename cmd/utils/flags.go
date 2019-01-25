@@ -454,6 +454,12 @@ var (
 		Value:    ethconfig.Defaults.TxPool.PriceLimit,
 		Category: flags.TxPoolCategory,
 	}
+	TxPoolBroadcastPendingLocalTxFlag = &cli.DurationFlag{
+		Name:     "txpool.broadcastpendinglocaltx",
+		Usage:    "Time interval to broadcast the pending local transaction",
+		Value:    core.DefaultTxPoolConfig.BroadcastPendingLocalTx,
+		Category: flags.TxPoolCategory,
+	}
 	TxPoolPriceBumpFlag = &cli.Uint64Flag{
 		Name:     "txpool.pricebump",
 		Usage:    "Price bump percentage to replace an already existing transaction",
@@ -1718,6 +1724,9 @@ func setTxPool(ctx *cli.Context, cfg *core.TxPoolConfig) {
 	}
 	if ctx.IsSet(TxPoolPriceLimitFlag.Name) {
 		cfg.PriceLimit = ctx.Uint64(TxPoolPriceLimitFlag.Name)
+	}
+	if ctx.IsSet(TxPoolBroadcastPendingLocalTxFlag.Name) {
+		cfg.BroadcastPendingLocalTx = ctx.Duration(TxPoolBroadcastPendingLocalTxFlag.Name)
 	}
 	if ctx.IsSet(TxPoolPriceBumpFlag.Name) {
 		cfg.PriceBump = ctx.Uint64(TxPoolPriceBumpFlag.Name)
