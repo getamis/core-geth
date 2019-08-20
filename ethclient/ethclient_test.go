@@ -1177,6 +1177,7 @@ var allRPCMethods = []string{
 	"debug_getBadBlocks",
 	"debug_getModifiedAccountsByHash",
 	"debug_getModifiedAccountsByNumber",
+	"debug_getTransferLogs",
 	"debug_getTrieFlushInterval",
 	"debug_getRawBlock",
 	"debug_getRawHeader",
