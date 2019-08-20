@@ -21,7 +21,7 @@ all:
 
 #? test: Run the tests
 test: all
-	$(GORUN) build/ci.go test -timeout 20m
+	$(GORUN) build/ci.go test -timeout 40m
 
 # DEPRECATED.
 # No attempt will be made after the Istanbul fork to maintain
