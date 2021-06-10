@@ -1749,9 +1749,13 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 	}
 	receipt := receipts[index]
 
-	// Derive the sender.
+	return ToTransactionReceipt(ctx, s.b, tx, receipt, blockHash, hash, blockNumber, index)
+}
+
+func ToTransactionReceipt(ctx context.Context, b Backend, tx *types.Transaction, receipt *types.Receipt, blockHash common.Hash, hash common.Hash, blockNumber uint64, index uint64) (map[string]interface{}, error) {
+	chainConfig := b.ChainConfig()
 	bigblock := new(big.Int).SetUint64(blockNumber)
-	signer := types.MakeSigner(s.b.ChainConfig(), bigblock)
+	signer := types.MakeSigner(chainConfig, bigblock)
 	from, _ := types.Sender(signer, tx)
 
 	fields := map[string]interface{}{
@@ -1769,10 +1773,10 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 		"type":              hexutil.Uint(tx.Type()),
 	}
 	// Assign the effective gas price paid
-	if !s.b.ChainConfig().IsEnabled(s.b.ChainConfig().GetEIP1559Transition, bigblock) {
+	if !chainConfig.IsEnabled(chainConfig.GetEIP1559Transition, bigblock) {
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
 	} else {
-		header, err := s.b.HeaderByHash(ctx, blockHash)
+		header, err := b.HeaderByHash(ctx, blockHash)
 		if err != nil {
 			return nil, err
 		}
