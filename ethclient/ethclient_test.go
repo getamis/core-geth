@@ -1269,4 +1269,12 @@ var allRPCMethods = []string{
 	"txpool_status",
 	"web3_clientVersion",
 	"web3_sha3",
+	"debug_getBlockReceipts",
+	"debug_getTotalDifficulty",
+	"debug_getTransferLogs",
+	"debug_getTrieFlushInterval",
+	"debug_setTrieFlushInterval",
+	"eth_getBalanceByHash",
+	"eth_newQueuedTransactionFilter",
+	"eth_newQueuedTransactions",
 }
