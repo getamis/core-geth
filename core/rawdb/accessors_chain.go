@@ -34,6 +34,11 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+var (
+	errNotFound            = errors.New("not found")
+	errMissingTransferLogs = errors.New("missing transfer logs")
+)
+
 // ReadCanonicalHash retrieves the hash assigned to a canonical block number.
 func ReadCanonicalHash(db ethdb.Reader, number uint64) common.Hash {
 	var data []byte
@@ -738,6 +743,61 @@ func ReadLogs(db ethdb.Reader, hash common.Hash, number uint64) [][]*types.Log {
 	return logs
 }
 
+// ReadTransferLogsRLP retrieves all the transfer logs belonging to a block in RLP encoding.
+func ReadTransferLogsRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue {
+	data, _ := db.Get(blockTransferLogsKey(number, hash))
+	if len(data) > 0 {
+		return data
+	}
+	return nil // Can't find the data anywhere.
+}
+
+// ReadTransferLogs retrieves all the transfer logs belonging to a block.
+func ReadTransferLogs(db ethdb.Reader, hash common.Hash, number uint64) ([]*types.TransferLog, error) {
+	// Retrieve the flattened transfer log slice
+	data := ReadTransferLogsRLP(db, hash, number)
+	if len(data) == 0 {
+		return nil, errNotFound
+	}
+	transferLogs := []*types.TransferLog{}
+	if err := rlp.DecodeBytes(data, &transferLogs); err != nil {
+		if string(data) == errMissingTransferLogs.Error() {
+			return nil, errMissingTransferLogs
+		}
+		log.Error("Invalid transfer log array RLP", "hash", hash, "number", number, "err", err)
+		return nil, err
+	}
+	return transferLogs, nil
+}
+
+// WriteTransferLogs stores all the transfer logs belonging to a block.
+func WriteTransferLogs(db ethdb.KeyValueWriter, hash common.Hash, number uint64, transferLogs []*types.TransferLog) {
+	bytes, err := rlp.EncodeToBytes(transferLogs)
+	if err != nil {
+		log.Crit("Failed to encode block transfer logs", "hash", hash, "number", number, "err", err)
+	}
+	// Store the flattened transfer log slice
+	if err := db.Put(blockTransferLogsKey(number, hash), bytes); err != nil {
+		log.Crit("Failed to store block transfer logs", "hash", hash, "number", number, "err", err)
+	}
+}
+
+// WriteMissingTransferLogs stores missing transfer logs message for a block.
+func WriteMissingTransferLogs(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
+	bytes := []byte(errMissingTransferLogs.Error())
+	// Store the flattened transfer log slice
+	if err := db.Put(blockTransferLogsKey(number, hash), bytes); err != nil {
+		log.Crit("Failed to store block transfer logs", "hash", hash, "number", number, "err", err)
+	}
+}
+
+// DeleteTransferLogs removes all transfer logs associated with a block hash.
+func DeleteTransferLogs(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
+	if err := db.Delete(blockTransferLogsKey(number, hash)); err != nil {
+		log.Crit("Failed to delete block transfer logs", "hash", hash, "number", number, "err", err)
+	}
+}
+
 // ReadBlock retrieves an entire block corresponding to the hash, assembling it
 // back from the stored header and body. If either the header or body could not
 // be retrieved nil is returned.
@@ -809,11 +869,27 @@ func writeAncientBlock(op ethdb.AncientWriteOp, block *types.Block, header *type
 	if err := op.Append(ChainFreezerDifficultyTable, num, td); err != nil {
 		return fmt.Errorf("can't append block %d total difficulty: %v", num, err)
 	}
+	// Transfer logs might be nil when fast sync.
+	// To keep complete ancient table, we append the specific string to indicate nil transfer logs.
+	var transferLogBlob []byte
+	if transferLogs != nil {
+		var err error
+		transferLogBlob, err = rlp.EncodeToBytes(transferLogs)
+		if err != nil {
+			log.Crit("Failed to RLP encode block transfer logs", "err", err)
+		}
+	} else {
+		transferLogBlob = []byte(errMissingTransferLogs.Error())
+	}
+	if err := op.AppendRaw(ChainFreezerTransferLogTable, num, transferLogBlob); err != nil {
+		return fmt.Errorf("can't append block %d transfer logs: %v", num, err)
+	}
 	return nil
 }
 
 // DeleteBlock removes all block data associated with a hash.
 func DeleteBlock(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
+	DeleteTransferLogs(db, hash, number)
 	DeleteReceipts(db, hash, number)
 	DeleteHeader(db, hash, number)
 	DeleteBody(db, hash, number)
@@ -823,6 +899,7 @@ func DeleteBlock(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
 // DeleteBlockWithoutNumber removes all block data associated with a hash, except
 // the hash to number mapping.
 func DeleteBlockWithoutNumber(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
+	DeleteTransferLogs(db, hash, number)
 	DeleteReceipts(db, hash, number)
 	deleteHeaderWithoutNumber(db, hash, number)
 	DeleteBody(db, hash, number)
