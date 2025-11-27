@@ -745,9 +745,31 @@ func ReadLogs(db ethdb.Reader, hash common.Hash, number uint64) [][]*types.Log {
 
 // ReadTransferLogsRLP retrieves all the transfer logs belonging to a block in RLP encoding.
 func ReadTransferLogsRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue {
-	data, _ := db.Get(blockTransferLogsKey(number, hash))
+	// First try to look up the data in ancient database. Extra hash
+	// comparison is necessary since ancient database only maintains
+	// the canonical data.
+	data, _ := db.Ancient(ChainFreezerTransferLogTable, number)
+	if len(data) > 0 {
+		h, _ := db.Ancient(ChainFreezerHashTable, number)
+		if common.BytesToHash(h) == hash {
+			return data
+		}
+	}
+	// Then try to look up the data in leveldb.
+	data, _ = db.Get(blockTransferLogsKey(number, hash))
 	if len(data) > 0 {
 		return data
+	}
+	// In the background freezer is moving data from leveldb to flatten files.
+	// So during the first check for ancient db, the data is not yet in there,
+	// but when we reach into leveldb, the data was already moved. That would
+	// result in a not found error.
+	data, _ = db.Ancient(ChainFreezerTransferLogTable, number)
+	if len(data) > 0 {
+		h, _ := db.Ancient(ChainFreezerHashTable, number)
+		if common.BytesToHash(h) == hash {
+			return data
+		}
 	}
 	return nil // Can't find the data anywhere.
 }
@@ -823,7 +845,7 @@ func WriteBlock(db ethdb.KeyValueWriter, block *types.Block) {
 }
 
 // WriteAncientBlocks writes entire block data into ancient store and returns the total written size.
-func WriteAncientBlocks(db ethdb.AncientWriter, blocks []*types.Block, receipts []types.Receipts, td *big.Int) (int64, error) {
+func WriteAncientBlocks(db ethdb.AncientWriter, blocks []*types.Block, receipts []types.Receipts, td *big.Int, transferLogs []*types.TransferLog) (int64, error) {
 	var (
 		tdSum      = new(big.Int).Set(td)
 		stReceipts []*types.ReceiptForStorage
@@ -844,7 +866,7 @@ func WriteAncientBlocks(db ethdb.AncientWriter, blocks []*types.Block, receipts 
 			if i > 0 {
 				tdSum.Add(tdSum, header.Difficulty)
 			}
-			if err := writeAncientBlock(op, block, header, stReceipts, tdSum); err != nil {
+			if err := writeAncientBlock(op, block, header, stReceipts, tdSum, transferLogs); err != nil {
 				return err
 			}
 		}
@@ -852,7 +874,7 @@ func WriteAncientBlocks(db ethdb.AncientWriter, blocks []*types.Block, receipts 
 	})
 }
 
-func writeAncientBlock(op ethdb.AncientWriteOp, block *types.Block, header *types.Header, receipts []*types.ReceiptForStorage, td *big.Int) error {
+func writeAncientBlock(op ethdb.AncientWriteOp, block *types.Block, header *types.Header, receipts []*types.ReceiptForStorage, td *big.Int, transferLogs []*types.TransferLog) error {
 	num := block.NumberU64()
 	if err := op.AppendRaw(ChainFreezerHashTable, num, block.Hash().Bytes()); err != nil {
 		return fmt.Errorf("can't add block %d hash: %v", num, err)
